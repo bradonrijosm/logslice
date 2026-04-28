@@ -2,72 +2,88 @@
 
 import argparse
 import sys
-from typing import List, Optional
+from typing import Optional
 
 from logslice.parser import parse_datetime_arg
 from logslice.slicer import slice_log, count_lines
+from logslice.formatter import format_lines, format_summary, format_no_match
+from logslice.highlighter import highlight_lines
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build and return the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="logslice",
         description="Extract time-range slices from large log files.",
     )
-    parser.add_argument("file", help="Path to the log file.")
+    parser.add_argument("logfile", help="Path to the log file to slice.")
     parser.add_argument(
-        "--start", "-s",
+        "--start",
+        default=None,
         metavar="DATETIME",
-        help="Start of the time range (inclusive). E.g. 2024-01-15T08:00:00",
+        help="Start of the time range (inclusive).",
     )
     parser.add_argument(
-        "--end", "-e",
+        "--end",
+        default=None,
         metavar="DATETIME",
-        help="End of the time range (inclusive). E.g. 2024-01-15T17:00:00",
+        help="End of the time range (inclusive).",
     )
     parser.add_argument(
-        "--count", "-c",
+        "-n",
+        "--line-numbers",
         action="store_true",
-        help="Print the number of matching lines instead of the lines themselves.",
+        default=False,
+        help="Prefix each output line with its line number.",
     )
     parser.add_argument(
-        "--encoding",
-        default="utf-8",
-        help="Log file encoding (default: utf-8).",
+        "--summary",
+        action="store_true",
+        default=False,
+        help="Print a summary of matched vs total lines after output.",
+    )
+    parser.add_argument(
+        "--highlight",
+        nargs="+",
+        metavar="KEYWORD",
+        default=[],
+        help="Highlight one or more keywords in the output.",
+    )
+    parser.add_argument(
+        "--highlight-color",
+        choices=["yellow", "red"],
+        default="yellow",
+        help="Color to use for keyword highlighting (default: yellow).",
     )
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: Optional[list] = None) -> int:
+    """Entry point for the logslice CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    start = None
-    end = None
+    start = parse_datetime_arg(args.start) if args.start else None
+    end = parse_datetime_arg(args.end) if args.end else None
 
     try:
-        if args.start:
-            start = parse_datetime_arg(args.start)
-        if args.end:
-            end = parse_datetime_arg(args.end)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-
-    try:
-        if args.count:
-            print(count_lines(args.file, start, end, args.encoding))
-        else:
-            for line in slice_log(args.file, start, end, args.encoding):
-                print(line)
+        lines, total = slice_log(args.logfile, start=start, end=end)
     except FileNotFoundError:
-        print(f"Error: File not found: {args.file}", file=sys.stderr)
+        print(f"logslice: error: file not found: {args.logfile}", file=sys.stderr)
         return 1
-    except OSError as exc:
-        print(f"Error reading file: {exc}", file=sys.stderr)
-        return 1
+
+    if not lines:
+        print(format_no_match())
+        return 0
+
+    if args.highlight:
+        lines = highlight_lines(
+            lines, args.highlight, color=args.highlight_color
+        )
+
+    matched = format_lines(lines, line_numbers=args.line_numbers)
+
+    if args.summary:
+        print(format_summary(matched, total))
 
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
