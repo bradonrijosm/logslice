@@ -45,6 +45,12 @@ class TestDeduplicateGlobal:
         result = list(deduplicate_lines(iter(same)))
         assert result == [(1, "same line")]
 
+    def test_preserves_original_line_numbers(self):
+        """Ensure line numbers from first occurrence are preserved, not renumbered."""
+        result = list(deduplicate_lines(iter(LINES)))
+        line_numbers = [n for n, _ in result]
+        assert line_numbers == [1, 2, 4]
+
 
 class TestDeduplicateConsecutive:
     def test_collapses_consecutive_repeats(self):
@@ -62,6 +68,12 @@ class TestDeduplicateConsecutive:
     def test_single_line_returned(self):
         result = list(deduplicate_lines(iter([(1, "only")]), consecutive_only=True))
         assert result == [(1, "only")]
+
+    def test_preserves_first_line_number_in_run(self):
+        """Ensure the line number of the first line in a consecutive run is kept."""
+        result = list(deduplicate_lines(iter(CONSECUTIVE_LINES), consecutive_only=True))
+        line_numbers = [n for n, _ in result]
+        assert line_numbers == [1, 4, 5]
 
 
 class TestCountDuplicates:
