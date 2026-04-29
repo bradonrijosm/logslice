@@ -52,9 +52,15 @@ def filter_by_pattern(
 
     Yields:
         Lines that match the compiled pattern.
+
+    Raises:
+        re.error: If *pattern* is not a valid regular expression.
     """
     flags = 0 if case_sensitive else re.IGNORECASE
-    compiled = re.compile(pattern, flags)
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        raise ValueError(f"Invalid regex pattern '{pattern}': {exc}") from exc
     for line in lines:
         if compiled.search(line):
             yield line
