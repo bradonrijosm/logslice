@@ -53,6 +53,13 @@ class TestHighlightKeywords:
         result = highlight_keywords("foo bar foo", ["foo"])
         assert result.count(f"{ANSI_YELLOW}foo{ANSI_RESET}") == 2
 
+    def test_empty_string_returns_empty(self):
+        assert highlight_keywords("", ["ERROR"]) == ""
+
+    def test_keyword_not_in_line_returns_unchanged(self):
+        line = "INFO everything is fine"
+        assert highlight_keywords(line, ["ERROR"]) == line
+
 
 class TestHighlightLines:
     def test_empty_list_returns_empty(self):
@@ -69,3 +76,10 @@ class TestHighlightLines:
     def test_no_keywords_returns_unchanged(self):
         lines = ["line one", "line two"]
         assert highlight_lines(lines, []) == lines
+
+    def test_preserves_line_order(self):
+        lines = ["alpha ERROR", "beta INFO", "gamma ERROR"]
+        result = highlight_lines(lines, ["ERROR"])
+        assert result[0].startswith("alpha")
+        assert result[1].startswith("beta")
+        assert result[2].startswith("gamma")
