@@ -1,68 +1,72 @@
-"""High-level pipeline that wires slicer, filter, deduplicator, and formatter."""
+"""Pipeline orchestration for logslice processing steps."""
 
-from __future__ import annotations
+from typing import List, Optional, Dict, Any
 
-import sys
-from typing import IO, List, Optional
-
-from logslice.slicer import slice_log
 from logslice.filter import filter_lines
-from logslice.highlighter import highlight_lines
 from logslice.deduplicator import deduplicate_lines
-from logslice.formatter import format_lines, format_summary, format_no_match
+from logslice.truncator import truncate_and_cap
+from logslice.highlighter import highlight_lines
+from logslice.context import extract_context, find_match_indices
+from logslice.stats import compute_stats
 
 
 def run_pipeline(
-    log_path: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    lines: List[str],
+    *,
     level: Optional[str] = None,
     pattern: Optional[str] = None,
-    keywords: Optional[List[str]] = None,
     deduplicate: bool = False,
-    consecutive_only: bool = False,
-    line_numbers: bool = False,
-    summary: bool = False,
-    output: IO[str] = sys.stdout,
-) -> int:
-    """Execute the full logslice pipeline and write results to *output*.
+    dedup_consecutive: bool = False,
+    max_length: Optional[int] = None,
+    cap: Optional[int] = None,
+    keywords: Optional[List[str]] = None,
+    case_sensitive: bool = False,
+    before_context: int = 0,
+    after_context: int = 0,
+    include_stats: bool = False,
+) -> Dict[str, Any]:
+    """Run the full processing pipeline on a list of log lines.
 
-    Returns the number of lines written.
+    Returns a dict with:
+      - 'lines': the processed lines
+      - 'stats': optional statistics dict (empty if include_stats=False)
     """
-    # 1. Slice by time range
-    sliced = slice_log(log_path, start=start, end=end)
+    result = list(lines)
 
-    # 2. Filter by level / pattern
-    filtered = filter_lines(
-        sliced,
-        level=level,
-        pattern=pattern,
-    )
+    # Filter by level and/or pattern
+    if level or pattern:
+        result = filter_lines(result, level=level, pattern=pattern)
 
-    # 3. Optional deduplication
-    if deduplicate:
-        processed = deduplicate_lines(filtered, consecutive_only=consecutive_only)
-    else:
-        processed = filtered
+    # Context extraction (operates on filtered set)
+    if before_context > 0 or after_context > 0:
+        match_indices = find_match_indices(result, pattern or "")
+        result = extract_context(
+            result,
+            match_indices,
+            before=before_context,
+            after=after_context,
+        )
 
-    # 4. Highlight keywords
+    # Deduplication
+    if deduplicate or dedup_consecutive:
+        mode = "consecutive" if dedup_consecutive else "global"
+        result = deduplicate_lines(result, mode=mode)
+
+    # Truncation / capping
+    if max_length is not None or cap is not None:
+        result = truncate_and_cap(
+            result,
+            max_length=max_length or 0,
+            limit=cap or 0,
+        )
+
+    # Keyword highlighting
     if keywords:
-        processed = highlight_lines(processed, keywords=keywords)
+        result = highlight_lines(result, keywords, case_sensitive=case_sensitive)
 
-    # 5. Collect so we can report summary / no-match
-    lines = list(processed)
+    stats: Dict[str, Any] = {}
+    if include_stats:
+        # Compute stats on un-highlighted lines to avoid ANSI noise
+        stats = compute_stats(lines if not keywords else result)
 
-    if not lines:
-        format_no_match(output)
-        return 0
-
-    count = format_lines(
-        lines,
-        output=output,
-        line_numbers=line_numbers,
-    )
-
-    if summary:
-        format_summary(count, output=output)
-
-    return count
+    return {"lines": result, "stats": stats}
