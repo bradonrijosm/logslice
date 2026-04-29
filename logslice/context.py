@@ -24,6 +24,9 @@ def extract_context(
     Returns:
         List of (line_number, text, is_match) tuples, sorted by line_number,
         with no duplicates.
+
+    Raises:
+        ValueError: If any index in `match_indices` is out of range for `lines`.
     """
     if not lines or not match_indices:
         return []
@@ -31,6 +34,12 @@ def extract_context(
     before = max(0, before)
     after = max(0, after)
     total = len(lines)
+
+    for idx in match_indices:
+        if idx < 0 or idx >= total:
+            raise ValueError(
+                f"match index {idx} is out of range for lines of length {total}"
+            )
 
     selected: dict[int, bool] = {}
 
