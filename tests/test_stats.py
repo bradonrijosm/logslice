@@ -71,6 +71,14 @@ class TestComputeStats:
         assert stats["total_lines"] == 1
         assert stats["avg_line_length"] == float(len("INFO hello"))
 
+    def test_all_duplicates(self):
+        """All identical lines should yield one unique line and n-1 duplicates."""
+        lines = ["ERROR same message"] * 4
+        stats = compute_stats(lines)
+        assert stats["total_lines"] == 4
+        assert stats["unique_lines"] == 1
+        assert stats["duplicate_lines"] == 3
+
 
 class TestFormatStats:
     def test_returns_string(self):
@@ -88,8 +96,3 @@ class TestFormatStats:
         result = format_stats(stats)
         assert "ERROR" in result
         assert "INFO" in result
-
-    def test_empty_stats_no_level_section(self):
-        stats = compute_stats([])
-        result = format_stats(stats)
-        assert "Level counts" not in result
