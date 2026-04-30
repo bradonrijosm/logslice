@@ -1,72 +1,101 @@
-"""Pipeline orchestration for logslice processing steps."""
+"""End-to-end pipeline that wires all logslice stages together."""
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
-from logslice.filter import filter_lines
 from logslice.deduplicator import deduplicate_lines
-from logslice.truncator import truncate_and_cap
+from logslice.exporter import export_lines
+from logslice.filter import filter_lines
+from logslice.formatter import format_lines, format_no_match, format_summary
 from logslice.highlighter import highlight_lines
-from logslice.context import extract_context, find_match_indices
-from logslice.stats import compute_stats
+from logslice.slicer import slice_log
+from logslice.truncator import truncate_and_cap
 
 
 def run_pipeline(
-    lines: List[str],
-    *,
+    log_path: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     level: Optional[str] = None,
     pattern: Optional[str] = None,
-    deduplicate: bool = False,
-    dedup_consecutive: bool = False,
-    max_length: Optional[int] = None,
-    cap: Optional[int] = None,
     keywords: Optional[List[str]] = None,
-    case_sensitive: bool = False,
-    before_context: int = 0,
-    after_context: int = 0,
-    include_stats: bool = False,
-) -> Dict[str, Any]:
-    """Run the full processing pipeline on a list of log lines.
+    deduplicate: bool = False,
+    max_lines: Optional[int] = None,
+    max_line_length: Optional[int] = None,
+    line_numbers: bool = False,
+    export_fmt: str = "text",
+    export_metadata: Optional[dict] = None,
+    output_file: Optional[str] = None,
+) -> str:
+    """Run the full logslice pipeline and return (or write) the result.
 
-    Returns a dict with:
-      - 'lines': the processed lines
-      - 'stats': optional statistics dict (empty if include_stats=False)
+    Stages (in order):
+      1. Slice by time range
+      2. Filter by level / pattern
+      3. Deduplicate
+      4. Truncate lines and cap total count
+      5. Highlight keywords
+      6. Format (line numbers, summary)
+      7. Export to the requested format
+
+    Args:
+        log_path: Path to the source log file.
+        start: ISO-8601 start datetime string (inclusive).
+        end: ISO-8601 end datetime string (inclusive).
+        level: Log level to keep (e.g. 'ERROR').
+        pattern: Regex pattern; only matching lines are kept.
+        keywords: List of keywords to highlight in output.
+        deduplicate: Remove duplicate lines when True.
+        max_lines: Cap the number of output lines.
+        max_line_length: Truncate lines longer than this many characters.
+        line_numbers: Prefix each line with its line number.
+        export_fmt: Output format — 'text', 'json', or 'csv'.
+        export_metadata: Optional metadata dict for JSON exports.
+        output_file: If given, write result to this path instead of returning.
+
+    Returns:
+        The formatted, exported string (empty string when written to file).
     """
-    result = list(lines)
+    # Stage 1 – time-range slice
+    lines: List[str] = slice_log(log_path, start=start, end=end)
 
-    # Filter by level and/or pattern
-    if level or pattern:
-        result = filter_lines(result, level=level, pattern=pattern)
+    # Stage 2 – filtering
+    lines = filter_lines(lines, level=level, pattern=pattern)
 
-    # Context extraction (operates on filtered set)
-    if before_context > 0 or after_context > 0:
-        match_indices = find_match_indices(result, pattern or "")
-        result = extract_context(
-            result,
-            match_indices,
-            before=before_context,
-            after=after_context,
-        )
+    # Stage 3 – deduplication
+    if deduplicate:
+        lines = deduplicate_lines(lines, consecutive=False)
 
-    # Deduplication
-    if deduplicate or dedup_consecutive:
-        mode = "consecutive" if dedup_consecutive else "global"
-        result = deduplicate_lines(result, mode=mode)
+    # Stage 4 – truncation / capping
+    lines = truncate_and_cap(
+        lines,
+        max_length=max_line_length,
+        max_lines=max_lines,
+    )
 
-    # Truncation / capping
-    if max_length is not None or cap is not None:
-        result = truncate_and_cap(
-            result,
-            max_length=max_length or 0,
-            limit=cap or 0,
-        )
+    # Stage 5 – keyword highlighting (text/json only; skip for csv)
+    if keywords and export_fmt.lower() != "csv":
+        lines = highlight_lines(lines, keywords)
 
-    # Keyword highlighting
-    if keywords:
-        result = highlight_lines(result, keywords, case_sensitive=case_sensitive)
+    # Stage 6 – formatting
+    buf = []
+    if not lines:
+        buf.append(format_no_match())
+    else:
+        import io as _io
+        sink = _io.StringIO()
+        format_lines(lines, sink, line_numbers=line_numbers)
+        buf.append(sink.getvalue().rstrip("\n"))
+        buf.append(format_summary(len(lines)))
 
-    stats: Dict[str, Any] = {}
-    if include_stats:
-        # Compute stats on un-highlighted lines to avoid ANSI noise
-        stats = compute_stats(lines if not keywords else result)
+    combined = "\n".join(buf)
+    final_lines = combined.splitlines()
 
-    return {"lines": result, "stats": stats}
+    # Stage 7 – export
+    result = export_lines(final_lines, fmt=export_fmt, metadata=export_metadata)
+
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as fh:
+            fh.write(result)
+        return ""
+
+    return result
