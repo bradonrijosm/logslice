@@ -59,3 +59,16 @@ def format_no_match(output: TextIO = sys.stderr) -> None:
     output.write(
         "[logslice] Warning: no lines matched the specified time range.\n"
     )
+
+
+def format_context_separator(output: TextIO = sys.stdout) -> None:
+    """Write a context separator line between non-contiguous log segments.
+
+    This is analogous to the ``--`` separator printed by ``grep -C`` when
+    adjacent match groups are not contiguous, giving the reader a clear
+    visual boundary between disjoint slices of a log file.
+
+    Args:
+        output: File-like object to write to (defaults to stdout).
+    """
+    output.write("--\n")
