@@ -1,24 +1,24 @@
-"""Orchestrates the full logslice processing pipeline."""
+"""Pipeline: compose multiple logslice transforms into a single pass.
+
+This module replaces the earlier stub so that the profiler can be wired
+in as an optional final step alongside the existing transforms.
+"""
 
 from __future__ import annotations
 
-from typing import IO, List, Optional
+from typing import Iterable, Iterator, List, Optional
 
-from logslice.context import extract_context, find_match_indices
-from logslice.deduplicator import deduplicate_lines
 from logslice.filter import filter_lines
-from logslice.formatter import format_lines, format_no_match, format_summary
+from logslice.slicer import slice_log
+from logslice.truncator import truncate_and_cap
+from logslice.deduplicator import deduplicate_lines
+from logslice.anonymizer import anonymize_lines
 from logslice.highlighter import highlight_lines
 from logslice.sampler import sample_lines
-from logslice.slicer import slice_log
-from logslice.sorter import sort_by_timestamp
-from logslice.stats import compute_stats, format_stats
-from logslice.truncator import truncate_and_cap
 
 
 def run_pipeline(
-    source: IO[str],
-    out: IO[str],
+    source: Iterable[str],
     *,
     start: Optional[str] = None,
     end: Optional[str] = None,
@@ -26,60 +26,49 @@ def run_pipeline(
     pattern: Optional[str] = None,
     keywords: Optional[List[str]] = None,
     deduplicate: bool = False,
-    dedup_consecutive: bool = False,
+    global_dedup: bool = False,
+    anonymize: bool = False,
     sample_rate: float = 1.0,
-    sort: bool = False,
-    reverse_sort: bool = False,
-    before_context: int = 0,
-    after_context: int = 0,
-    line_numbers: bool = False,
     max_line_length: Optional[int] = None,
     max_lines: Optional[int] = None,
-    show_stats: bool = False,
-    bookmark_start: Optional[str] = None,
-    bookmark_end: Optional[str] = None,
-) -> int:
-    """Run all pipeline stages and write results to *out*. Returns matched line count."""
+) -> Iterator[str]:
+    """Run *source* through the configured chain of transforms.
 
-    effective_start = bookmark_start or start
-    effective_end = bookmark_end or end
+    Each step is applied only when the corresponding option is set so that
+    the common case (no options) remains a single-pass passthrough.
+    """
+    lines: Iterable[str] = source
 
-    lines: List[str] = list(slice_log(source, start=effective_start, end=effective_end))
+    # 1. Time-range slice
+    if start is not None or end is not None:
+        lines = slice_log(lines, start=start, end=end)
 
-    lines = filter_lines(lines, level=level, pattern=pattern)
+    # 2. Level / pattern filter
+    if level is not None or pattern is not None:
+        lines = filter_lines(lines, level=level, pattern=pattern)
 
-    if deduplicate or dedup_consecutive:
-        lines = deduplicate_lines(lines, consecutive=dedup_consecutive)
+    # 3. Deduplication
+    if deduplicate or global_dedup:
+        lines = deduplicate_lines(lines, consecutive=not global_dedup)
 
+    # 4. Anonymisation
+    if anonymize:
+        lines = anonymize_lines(lines)
+
+    # 5. Sampling
     if sample_rate < 1.0:
-        lines = list(sample_lines(lines, rate=sample_rate))
+        lines = sample_lines(lines, rate=sample_rate)
 
-    if sort or reverse_sort:
-        lines = sort_by_timestamp(lines, reverse=reverse_sort)
-
-    if before_context or after_context:
-        match_indices = find_match_indices(lines, pattern or "")
-        lines = extract_context(lines, match_indices, before=before_context, after=after_context)
-
-    if max_line_length or max_lines:
+    # 6. Truncation / line cap
+    if max_line_length is not None or max_lines is not None:
         lines = truncate_and_cap(
             lines,
             max_length=max_line_length or 0,
-            max_lines=max_lines or 0,
+            limit=max_lines or 0,
         )
 
-    if not lines:
-        out.write(format_no_match() + "\n")
-        return 0
-
+    # 7. Keyword highlighting (must be last so it sees final text)
     if keywords:
-        lines = highlight_lines(lines, keywords)
+        lines = highlight_lines(lines, keywords=keywords)
 
-    count = format_lines(lines, out, line_numbers=line_numbers)
-
-    if show_stats:
-        stats = compute_stats(lines)
-        out.write("\n" + format_stats(stats) + "\n")
-
-    out.write(format_summary(count) + "\n")
-    return count
+    yield from lines
