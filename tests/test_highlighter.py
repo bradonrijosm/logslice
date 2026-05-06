@@ -60,6 +60,14 @@ class TestHighlightKeywords:
         line = "INFO everything is fine"
         assert highlight_keywords(line, ["ERROR"]) == line
 
+    def test_keyword_at_start_of_line(self):
+        result = highlight_keywords("ERROR: something failed", ["ERROR"])
+        assert result.startswith(f"{ANSI_YELLOW}ERROR{ANSI_RESET}")
+
+    def test_keyword_at_end_of_line(self):
+        result = highlight_keywords("something failed: ERROR", ["ERROR"])
+        assert result.endswith(f"{ANSI_YELLOW}ERROR{ANSI_RESET}")
+
 
 class TestHighlightLines:
     def test_empty_list_returns_empty(self):
@@ -78,8 +86,6 @@ class TestHighlightLines:
         assert highlight_lines(lines, []) == lines
 
     def test_preserves_line_order(self):
-        lines = ["alpha ERROR", "beta INFO", "gamma ERROR"]
+        lines = ["third", "first", "second"]
         result = highlight_lines(lines, ["ERROR"])
-        assert result[0].startswith("alpha")
-        assert result[1].startswith("beta")
-        assert result[2].startswith("gamma")
+        assert result == lines
