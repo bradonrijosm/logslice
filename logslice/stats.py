@@ -67,3 +67,23 @@ def format_stats(stats: Dict[str, Any]) -> str:
         for level, count in sorted(stats["level_counts"].items()):
             lines.append(f"  {level:<10}: {count}")
     return "\n".join(lines)
+
+
+def top_repeated_lines(lines: List[str], n: int = 5) -> List[Dict[str, Any]]:
+    """Return the top N most repeated lines with their counts.
+
+    Args:
+        lines: List of log lines to analyse.
+        n: Number of top entries to return. Defaults to 5.
+
+    Returns:
+        A list of dicts with 'line' and 'count' keys, sorted by count descending.
+    """
+    if not lines:
+        return []
+    counts = Counter(lines)
+    return [
+        {"line": line, "count": count}
+        for line, count in counts.most_common(n)
+        if count > 1
+    ]
