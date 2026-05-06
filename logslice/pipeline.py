@@ -36,7 +36,36 @@ def run_pipeline(
 
     Each step is applied only when the corresponding option is set so that
     the common case (no options) remains a single-pass passthrough.
+
+    Args:
+        source: An iterable of raw log lines.
+        start: Timestamp string; skip lines before this time.
+        end: Timestamp string; skip lines after this time.
+        level: Minimum log level to include (e.g. ``"WARNING"``).
+        pattern: Regex pattern; only matching lines are kept.
+        keywords: Terms to highlight in the output.
+        deduplicate: Remove consecutive duplicate lines when ``True``.
+        global_dedup: Remove all duplicate lines (not just consecutive)
+            when ``True``.  Takes precedence over *deduplicate*.
+        anonymize: Replace PII-like tokens with placeholders when ``True``.
+        sample_rate: Fraction of lines to retain (``1.0`` keeps all).
+            Must be in the range ``(0.0, 1.0]``.
+        max_line_length: Truncate lines longer than this many characters.
+            ``None`` disables truncation.
+        max_lines: Stop after emitting this many lines.
+            ``None`` means no limit.
+
+    Raises:
+        ValueError: If *sample_rate* is not in the range ``(0.0, 1.0]``.
+
+    Yields:
+        Transformed log lines in order.
     """
+    if not (0.0 < sample_rate <= 1.0):
+        raise ValueError(
+            f"sample_rate must be in the range (0.0, 1.0], got {sample_rate!r}"
+        )
+
     lines: Iterable[str] = source
 
     # 1. Time-range slice
