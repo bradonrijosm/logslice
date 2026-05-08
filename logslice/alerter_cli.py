@@ -41,17 +41,29 @@ def build_alerter_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _parse_rule(raw: str) -> tuple[str, str] | None:
+    """Parse a raw NAME:PATTERN string into a (name, pattern) tuple.
+
+    Returns None if the string does not contain a colon separator.
+    """
+    if ":" not in raw:
+        return None
+    name, _, pattern = raw.partition(":")
+    return name.strip(), pattern.strip()
+
+
 def cmd_alert(args: argparse.Namespace, out=sys.stdout) -> int:
     rules: list[AlertRule] = []
     for raw in args.rules:
-        if ":" not in raw:
+        parsed = _parse_rule(raw)
+        if parsed is None:
             out.write(f"Invalid rule (expected NAME:PATTERN): {raw}\n")
             return 1
-        name, _, pattern = raw.partition(":")
+        name, pattern = parsed
         rules.append(
             AlertRule(
-                name=name.strip(),
-                pattern=pattern.strip(),
+                name=name,
+                pattern=pattern,
                 level=args.level,
                 case_sensitive=args.case_sensitive,
             )
