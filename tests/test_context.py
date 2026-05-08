@@ -84,6 +84,12 @@ class TestFindMatchIndices:
         indices = find_match_indices(LINES, lambda t: "ERROR" in t)
         assert indices == [2, 5]
 
-    def test_all_match(self):
-        indices = find_match_indices(LINES, lambda t: True)
+    def test_all_lines_match(self):
+        indices = find_match_indices(LINES, lambda t: len(t) > 0)
         assert indices == list(range(len(LINES)))
+
+    def test_predicate_receives_text_not_tuple(self):
+        # Ensure the predicate is called with the text portion, not the full tuple
+        seen = []
+        find_match_indices(LINES, lambda t: seen.append(t) or False)
+        assert all(isinstance(s, str) for s in seen)
